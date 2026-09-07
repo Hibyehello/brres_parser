@@ -1,4 +1,4 @@
-use crate::brres::{RawBrres, SectionType, mdl0::MDL0};
+use crate::brres::{RawBrres, common::SectionType, mdl0::MDL0};
 
 pub(crate) struct Header {
     pub header_length: usize,

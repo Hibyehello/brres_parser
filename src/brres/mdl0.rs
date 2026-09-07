@@ -1,4 +1,4 @@
-use crate::brres::{RawBrres, Vec3};
+use crate::brres::{RawBrres, common::Vec3};
 
 // TODO: Implement each section
 pub struct MDL0 {
