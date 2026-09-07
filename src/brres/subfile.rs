@@ -1,4 +1,4 @@
-use crate::brres::{RawBrres, common::SectionType, mdl0::MDL0};
+use crate::brres::{RawBrres, common::SectionType, mdl0::MDL0, tex0::TEX0};
 
 pub(crate) struct Header {
     pub header_length: usize,
@@ -142,6 +142,7 @@ impl Header {
 
 pub enum SubFileData {
     Mdl0(MDL0),
+    Tex0(TEX0),
     Unsupported,
 }
 
@@ -165,9 +166,18 @@ impl SubFile {
         Ok(())
     }
 
+    fn create_tex0(&mut self, brres: RawBrres) -> Result<(), String> {
+        let tex0 = TEX0::new(brres, self.header.file_off, self.header.header_length)?;
+
+        self.file = Some(SubFileData::Tex0(tex0));
+
+        Ok(())
+    }
+
     pub fn generate_subfile(&mut self, brres: RawBrres) -> Result<(), String> {
         match (self.header.section_type) {
             SectionType::MDL0 => self.create_mdl0(brres),
+            SectionType::TEX0 => self.create_tex0(brres),
             _ => {
                 println!(
                     "Unsupported subfile encountered: {}",

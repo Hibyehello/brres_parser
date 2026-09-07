@@ -1,4 +1,5 @@
 use std::fmt;
+use std::panic::Location;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec3 {
@@ -148,4 +149,64 @@ impl fmt::Display for Endian {
             Endian::Little => write!(f, "Little"),
         }
     }
+}
+pub fn read_u32(data: &[u8], offset: usize, ctx: &str) -> Result<u32, String> {
+    let size = 4;
+
+    let slice = data
+        .get(offset..offset + size)
+        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
+
+    Ok(u32::from_be_bytes(slice.try_into().map_err(|_| {
+        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
+    })?))
+}
+
+pub fn read_u16(data: &[u8], offset: usize, ctx: &str) -> Result<u16, String> {
+    let size = 2;
+
+    let slice = data
+        .get(offset..offset + size)
+        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
+
+    Ok(u16::from_be_bytes(slice.try_into().map_err(|_| {
+        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
+    })?))
+}
+
+pub fn read_f32(data: &[u8], offset: usize, ctx: &str) -> Result<f32, String> {
+    let size = 4;
+
+    let slice = data
+        .get(offset..offset + size)
+        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
+
+    Ok(f32::from_be_bytes(slice.try_into().map_err(|_| {
+        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
+    })?))
+}
+
+pub fn read_vec3(data: &[u8], offset: usize, ctx: &str) -> Result<Vec3, String> {
+    Ok(Vec3 {
+        x: read_f32(data, offset, ctx)?,
+        y: read_f32(data, offset + 4, ctx)?,
+        z: read_f32(data, offset + 8, ctx)?,
+    })
+}
+
+pub fn read_bool(data: &[u8], offset: usize, ctx: &str) -> Result<bool, String> {
+    let size = 1;
+    let slice = data
+        .get(offset..offset + size)
+        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
+
+    Ok(slice[0] != 0)
+}
+
+pub fn read_str(data: &[u8], offset: usize, len: usize, ctx: &str) -> Result<String, String> {
+    let slice = data
+        .get(offset..offset + len)
+        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", len, offset))?;
+    String::from_utf8(slice.to_vec())
+        .map_err(|_| format!("{ctx}: Invalid UTF-8 at offset {:#02x}", offset))
 }
