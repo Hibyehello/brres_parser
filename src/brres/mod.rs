@@ -3,6 +3,8 @@ mod common;
 mod index_group;
 mod mdl0;
 mod subfile;
+mod tex0;
+
 use common::Endian;
 use index_group::IndexHeader;
 use std::fs;
