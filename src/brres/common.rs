@@ -1,5 +1,100 @@
 use std::fmt;
-use std::panic::Location;
+use std::mem;
+
+pub trait FromBytes: Sized {
+    #[track_caller]
+    fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String>;
+}
+
+pub struct VariableString {
+    pub string: String,
+    pub length: usize,
+}
+
+impl FromBytes for VariableString {
+    #[track_caller]
+    fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+        let mut slice = data.get(offset - 0x4..offset).ok_or(format!(
+            "{ctx}: Failed to get 0x4 bytes for {ctx} name length: line {}",
+            line!()
+        ))?;
+        let len = u32::from_be_bytes(
+            slice
+                .try_into()
+                .map_err(|_| format!("{ctx}: Unable to convert Slice: line {}", line!()))?,
+        ) as usize;
+        slice = data.get(offset..offset + len).ok_or(format!(
+            "{ctx}: Failed to get {:#02x} bytes for {ctx} Name: line {}",
+            len,
+            line!()
+        ))?;
+        Ok(VariableString {
+            string: String::from_utf8(slice.to_vec()).map_err(|_| {
+                format!("{ctx}: Unable to convert slice to String: line {}", line!())
+            })?,
+            length: len,
+        })
+    }
+}
+
+impl FromBytes for String {
+    #[track_caller]
+    fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+        let slice = data
+            .get(offset..offset + 0x4)
+            .ok_or(format!("{ctx}: Unable to get slice: line {}", line!()))?;
+        let magic = String::from_utf8(slice.to_vec())
+            .map_err(|_| format!("{ctx}: Unable to convert slice to String: line {}", line!()))?;
+
+        Ok(magic)
+    }
+}
+
+impl FromBytes for bool {
+    #[track_caller]
+    fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+        let slice = data.get(offset..offset + 1).ok_or_else(|| {
+            format!(
+                "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}: line{}",
+                1,
+                offset,
+                line!()
+            )
+        })?;
+
+        Ok(slice[0] != 0)
+    }
+}
+
+macro_rules! impl_primitive_FromBytes {
+    ($($t:ty), *) => {
+        $(
+            impl FromBytes for $t {
+                #[track_caller]
+                fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+                    let size = std::mem::size_of::<$t>();
+
+                    let slice = data.get(offset..offset + size).ok_or_else(|| {
+                        format!(
+                            "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}",
+                            size, offset
+                        )
+                    })?;
+
+                    Ok(<$t>::from_be_bytes(slice.try_into().map_err(|_| {
+                        format!(
+                            "{ctx}: Internal error converting bytes to array at offset {:#02x}",
+                            offset
+                        )
+                    })?))
+
+                }
+            }
+        )*
+    };
+}
+
+impl_primitive_FromBytes!(u16, i16, u32, i32, u64, i64, f32, f64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec3 {
@@ -35,6 +130,16 @@ impl Vec3 {
         );
 
         Ok(Vec3 { x, y, z })
+    }
+}
+
+impl FromBytes for Vec3 {
+    fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+        Ok(Vec3 {
+            x: read(data, offset, ctx)?,
+            y: read(data, offset + 4, ctx)?,
+            z: read(data, offset + 8, ctx)?,
+        })
     }
 }
 
@@ -150,63 +255,7 @@ impl fmt::Display for Endian {
         }
     }
 }
-pub fn read_u32(data: &[u8], offset: usize, ctx: &str) -> Result<u32, String> {
-    let size = 4;
 
-    let slice = data
-        .get(offset..offset + size)
-        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
-
-    Ok(u32::from_be_bytes(slice.try_into().map_err(|_| {
-        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
-    })?))
-}
-
-pub fn read_u16(data: &[u8], offset: usize, ctx: &str) -> Result<u16, String> {
-    let size = 2;
-
-    let slice = data
-        .get(offset..offset + size)
-        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
-
-    Ok(u16::from_be_bytes(slice.try_into().map_err(|_| {
-        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
-    })?))
-}
-
-pub fn read_f32(data: &[u8], offset: usize, ctx: &str) -> Result<f32, String> {
-    let size = 4;
-
-    let slice = data
-        .get(offset..offset + size)
-        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
-
-    Ok(f32::from_be_bytes(slice.try_into().map_err(|_| {
-        format!("{ctx}: Internal error converting bytes to array at offset {:#02x}", offset)
-    })?))
-}
-
-pub fn read_vec3(data: &[u8], offset: usize, ctx: &str) -> Result<Vec3, String> {
-    Ok(Vec3 {
-        x: read_f32(data, offset, ctx)?,
-        y: read_f32(data, offset + 4, ctx)?,
-        z: read_f32(data, offset + 8, ctx)?,
-    })
-}
-
-pub fn read_bool(data: &[u8], offset: usize, ctx: &str) -> Result<bool, String> {
-    let size = 1;
-    let slice = data
-        .get(offset..offset + size)
-        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", size, offset))?;
-
-    Ok(slice[0] != 0)
-}
-
-pub fn read_str(data: &[u8], offset: usize, len: usize, ctx: &str) -> Result<String, String> {
-    let slice = data
-        .get(offset..offset + len)
-        .ok_or_else(|| format!("{ctx}: Unable to get {:#02x} bytes from offset {:#02x}", len, offset))?;
-    String::from_utf8(slice.to_vec())
-        .map_err(|_| format!("{ctx}: Invalid UTF-8 at offset {:#02x}", offset))
+pub fn read<T: FromBytes>(data: &[u8], offset: usize, ctx: &str) -> Result<T, String> {
+    T::from_bytes(data, offset, ctx)
 }

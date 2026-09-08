@@ -1,4 +1,4 @@
-use crate::brres::{common::*, RawBrres};
+use crate::brres::{RawBrres, common::*};
 
 pub struct TEX0 {
     pub header: Header,
@@ -33,13 +33,13 @@ impl Header {
             .slice(offset, 0x1C)
             .ok_or_else(|| format!("{ctx}: Unable to get TEX0 header"))?;
 
-        let flag = read_u32(data, 0x0, ctx)?;
-        let width = read_u16(data, 0x4, ctx)?;
-        let height = read_u16(data, 0x6, ctx)?;
-        let format = read_u32(data, 0x8, ctx)?;
-        let mipmap_num = read_u32(data, 0xC, ctx)?;
-        let min_mipmap = read_f32(data, 0x10, ctx)?;
-        let max_mipmap = read_f32(data, 0x14, ctx)?;
+        let flag = read(data, 0x0, ctx)?;
+        let width = read(data, 0x4, ctx)?;
+        let height = read(data, 0x6, ctx)?;
+        let format = read(data, 0x8, ctx)?;
+        let mipmap_num = read(data, 0xC, ctx)?;
+        let min_mipmap = read(data, 0x10, ctx)?;
+        let max_mipmap = read(data, 0x14, ctx)?;
 
         println!("flag: {}", flag);
         println!("width: {}", width);
@@ -47,7 +47,7 @@ impl Header {
         println!("format: {}", format);
         println!("mipmap_num: {}", mipmap_num);
         println!("min_mipmap: {}", min_mipmap);
-        println!("max_mipmap: {}", max_mipmap);        
+        println!("max_mipmap: {}", max_mipmap);
 
         Ok(Header {
             flag,

@@ -1,4 +1,5 @@
 use crate::brres::RawBrres;
+use crate::brres::common::*;
 use crate::brres::subfile::SubFile;
 
 pub struct IndexHeader {
@@ -10,28 +11,14 @@ pub struct IndexHeader {
 
 impl IndexHeader {
     pub fn new(brres: RawBrres, offset: usize) -> Result<Self, String> {
+        let ctx = "IndexHeader";
         let data = brres
             .slice(offset, 0x8)
-            .ok_or("Failed to get 0x8 bytes for IndexHeader")?;
-        let mut slice = data.get(0x0..0x4).ok_or(format!(
-            "IndexHeader: Unable to get slice: line {}",
-            line!()
-        ))?;
-        let len_group = u32::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexHeader: Unable to convert Slice: line {}", line!()))?,
-        );
+            .ok_or(format!("{ctx}: Failed to get 0x8 bytes: line {}", line!()))?;
 
-        slice = data.get(0x4..0x8).ok_or(format!(
-            "IndexHeader: Unable to get slice: line {}",
-            line!()
-        ))?;
-        let num_group = u32::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexHeader: Unable to convert Slice: line {}", line!()))?,
-        );
+        let len_group = read(data, 0x0, ctx)?;
+
+        let num_group = read(data, 0x4, ctx)?;
 
         Ok(IndexHeader {
             len_group,
@@ -66,6 +53,7 @@ impl IndexEntry {
         root: bool,
         current_idx: u16,
     ) -> Result<Self, String> {
+        let ctx = "IndexEntry";
         let group_offset = root_offset - 0x8;
         let offset = if root {
             root_offset
@@ -74,54 +62,22 @@ impl IndexEntry {
         };
         let data = brres
             .slice(offset, 0x10)
-            .ok_or("Failed to get 0x10 bytes for IndexEntry")?;
+            .ok_or(format!("{ctx}: Failed to get 0x10 bytes: line {}", line!()))?;
 
-        let mut slice = data
-            .get(0x0..0x2)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let id = u16::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
-
-        slice = data
-            .get(0x2..0x4)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let flag = u16::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
-
-        slice = data
-            .get(0x4..0x6)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let left_idx = u16::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
-        slice = data
-            .get(0x6..0x8)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let right_idx = u16::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
+        let id = read(data, 0x0, ctx)?;
+        let flag = read(data, 0x2, ctx)?;
+        let left_idx = read(data, 0x4, ctx)?;
+        let right_idx = read(data, 0x6, ctx)?;
 
         let is_child = |child_idx: u16| -> bool {
             if child_idx == 0 {
                 return false;
             }
             let child_off = root_offset + (0x10 * child_idx as usize);
-            if let Some(slice) = brres.slice(child_off, 2) {
-                if let Ok(bytes) = slice.try_into() {
-                    u16::from_be_bytes(bytes) < id
-                } else {
-                    false
-                }
+            if let Some(slice) = brres.slice(child_off, 2)
+                && let Ok(bytes) = slice.try_into()
+            {
+                u16::from_be_bytes(bytes) < id
             } else {
                 false
             }
@@ -149,57 +105,24 @@ impl IndexEntry {
             None
         };
 
-        slice = data
-            .get(0x8..0xC)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let rel_name_off = u32::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
+        let rel_name_off: u32 = read(data, 0x8, ctx)?;
 
         let (name, len_name) = if root {
             ("ROOT".to_string(), 4)
         } else {
             let name_off = group_offset + rel_name_off as usize;
-            slice = brres
-                .slice((name_off as usize) - 0x4, 0x4)
-                .ok_or("Failed to get 0x4 bytes for IndexEntry name length")?;
-            let len =
-                u32::from_be_bytes(slice.try_into().map_err(|_| {
-                    format!("IndexEntry: Unable to convert Slice: line {}", line!())
-                })?);
-            slice = brres.slice(name_off as usize, len as usize).ok_or(format!(
-                "Failed to get {:#02x} bytes for IndexEntry Name",
-                len
-            ))?;
-            (
-                String::from_utf8(slice.to_vec()).map_err(|_| {
-                    format!(
-                        "IndexEntry: Unable to convert slice to String: line {}",
-                        line!()
-                    )
-                })?,
-                len,
-            )
+            let name: VariableString = read(brres.data, name_off, ctx)?;
+
+            (name.string, name.length as u32)
         };
 
-        slice = data
-            .get(0xC..0x10)
-            .ok_or(format!("IndexEntry: Unable to get slice: line {}", line!()))?;
-        let data_ptr = u32::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("IndexEntry: Unable to convert Slice: line {}", line!()))?,
-        );
+        let data_ptr = read(data, 0xC, ctx)?;
 
         let mut sub_index = None;
         let mut sub_file = None;
 
         if root == false {
-            let parsed_data = parse_data(brres, data_ptr, group_offset as u32)?;
-            sub_index = parsed_data.0;
-            sub_file = parsed_data.1;
+            (sub_index, sub_file) = parse_data(brres, data_ptr, group_offset as u32)?;
         }
 
         Ok(IndexEntry {
