@@ -128,18 +128,15 @@ pub fn parse_file(file: &str) -> std::io::Result<()> {
 
     index_header.root.print_entry_names();
 
-    let mut sub_files: Vec<&mut SubFile> = Vec::new();
+    let mut sub_files = Vec::new();
 
     index_header.root.create_subfiles(&mut sub_files);
 
-    sub_files
-        .iter_mut()
-        .try_for_each(|file| -> std::io::Result<()> {
-            println!("File SectionType is `{}`", file.header.section_type);
-            file.generate_subfile(brres_file)
-                .map_err(|e| std::io::Error::other(e))?;
-            Ok(())
-        })?;
+    for file in &mut sub_files {
+        println!("File SectionType is `{}`", file.header.section_type);
+        file.generate_subfile(brres_file)
+            .map_err(|e| std::io::Error::other(e))?;
+    }
 
     Ok(())
 }
