@@ -1,3 +1,4 @@
+pub mod vertices;
 use crate::brres::{RawBrres, common::*};
 
 // TODO: Implement each section

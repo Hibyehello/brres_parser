@@ -1,5 +1,8 @@
 use std::fmt;
 use std::mem;
+use std::panic::Location;
+
+use crate::brres::RawBrres;
 
 pub trait FromBytes: Sized {
     #[track_caller]
@@ -15,22 +18,26 @@ impl FromBytes for VariableString {
     #[track_caller]
     fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
         let mut slice = data.get(offset - 0x4..offset).ok_or(format!(
-            "{ctx}: Failed to get 0x4 bytes for {ctx} name length: line {}",
-            line!()
+            "{ctx}: Failed to get 0x4 bytes for {ctx} name length: caused by {}",
+            Location::caller()
         ))?;
-        let len = u32::from_be_bytes(
-            slice
-                .try_into()
-                .map_err(|_| format!("{ctx}: Unable to convert Slice: line {}", line!()))?,
-        ) as usize;
+        let len = u32::from_be_bytes(slice.try_into().map_err(|_| {
+            format!(
+                "{ctx}: Unable to convert Slice: caused by {}",
+                Location::caller()
+            )
+        })?) as usize;
         slice = data.get(offset..offset + len).ok_or(format!(
-            "{ctx}: Failed to get {:#02x} bytes for {ctx} Name: line {}",
+            "{ctx}: Failed to get {:#02x} bytes for {ctx} Name: caused by {}",
             len,
-            line!()
+            Location::caller()
         ))?;
         Ok(VariableString {
             string: String::from_utf8(slice.to_vec()).map_err(|_| {
-                format!("{ctx}: Unable to convert slice to String: line {}", line!())
+                format!(
+                    "{ctx}: Unable to convert slice to String: caused by {}",
+                    Location::caller()
+                )
             })?,
             length: len,
         })
@@ -40,11 +47,16 @@ impl FromBytes for VariableString {
 impl FromBytes for String {
     #[track_caller]
     fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
-        let slice = data
-            .get(offset..offset + 0x4)
-            .ok_or(format!("{ctx}: Unable to get slice: line {}", line!()))?;
-        let magic = String::from_utf8(slice.to_vec())
-            .map_err(|_| format!("{ctx}: Unable to convert slice to String: line {}", line!()))?;
+        let slice = data.get(offset..offset + 0x4).ok_or(format!(
+            "{ctx}: Unable to get slice: caused by {}",
+            Location::caller()
+        ))?;
+        let magic = String::from_utf8(slice.to_vec()).map_err(|_| {
+            format!(
+                "{ctx}: Unable to convert slice to String: caused by {}",
+                Location::caller()
+            )
+        })?;
 
         Ok(magic)
     }
@@ -55,15 +67,37 @@ impl FromBytes for bool {
     fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
         let slice = data.get(offset..offset + 1).ok_or_else(|| {
             format!(
-                "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}: line{}",
+                "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}: caused by {}",
                 1,
                 offset,
-                line!()
+                Location::caller()
             )
         })?;
 
         Ok(slice[0] != 0)
     }
+}
+
+macro_rules! impl_one_byte_FromBytes {
+    ($($t:ty), *) => {
+        $(
+            impl FromBytes for $t {
+                #[track_caller]
+                fn from_bytes(data: &[u8], offset: usize, ctx: &str) -> Result<Self, String> {
+                    let slice = data.get(offset..offset + 1).ok_or_else(|| {
+                        format!(
+                            "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}: caused by {}",
+                            1,
+                            offset,
+                            Location::caller()
+                        )
+                    })?;
+
+                    Ok(slice[0] as $t)
+                }
+            }
+        )*
+    };
 }
 
 macro_rules! impl_primitive_FromBytes {
@@ -76,15 +110,15 @@ macro_rules! impl_primitive_FromBytes {
 
                     let slice = data.get(offset..offset + size).ok_or_else(|| {
                         format!(
-                            "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}",
-                            size, offset
+                            "{ctx}: Unable to get {:#02x} bytes from offset {:#02x}: caused by {}",
+                            size, offset, Location::caller()
                         )
                     })?;
 
                     Ok(<$t>::from_be_bytes(slice.try_into().map_err(|_| {
                         format!(
-                            "{ctx}: Internal error converting bytes to array at offset {:#02x}",
-                            offset
+                            "{ctx}: Internal error converting bytes to array at offset {:#02x}: caused by {}",
+                            offset, Location::caller()
                         )
                     })?))
 
@@ -94,7 +128,12 @@ macro_rules! impl_primitive_FromBytes {
     };
 }
 
+impl_one_byte_FromBytes!(u8, i8);
 impl_primitive_FromBytes!(u16, i16, u32, i32, u64, i64, f32, f64);
+
+pub trait FromIndexGroup {
+    fn set_data(&mut self, brres: RawBrres, offset: u32, index: u16) -> Result<(), String>;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec3 {
@@ -158,6 +197,7 @@ pub enum SectionType {
 }
 
 impl SectionType {
+    #[track_caller]
     pub fn str_to_type(magic: String) -> Result<SectionType, String> {
         match magic.as_str() {
             "MDL0" => Ok(SectionType::MDL0),
@@ -170,7 +210,11 @@ impl SectionType {
             "SCN0" => Ok(SectionType::SCN0),
             "PLT0" => Ok(SectionType::PLT0),
             "VIS0" => Ok(SectionType::VIS0),
-            &_ => Err("Invalid Section Magic recieved".to_string()),
+            &_ => Err(format!(
+                "Invalid Section Magic recieved: {} called from {}",
+                magic,
+                Location::caller()
+            )),
         }
     }
 
@@ -256,6 +300,7 @@ impl fmt::Display for Endian {
     }
 }
 
+#[track_caller]
 pub fn read<T: FromBytes>(data: &[u8], offset: usize, ctx: &str) -> Result<T, String> {
     T::from_bytes(data, offset, ctx)
 }

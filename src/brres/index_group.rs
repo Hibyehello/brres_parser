@@ -10,6 +10,7 @@ pub struct IndexHeader {
 }
 
 impl IndexHeader {
+    #[track_caller]
     pub fn new(brres: RawBrres, offset: usize) -> Result<Self, String> {
         let ctx = "IndexHeader";
         let data = brres
@@ -17,6 +18,7 @@ impl IndexHeader {
             .ok_or(format!("{ctx}: Failed to get 0x8 bytes: line {}", line!()))?;
 
         let len_group = read(data, 0x0, ctx)?;
+        println!("{ctx}: Length: {len_group:#02x}");
 
         let num_group = read(data, 0x4, ctx)?;
 
@@ -47,6 +49,7 @@ pub struct IndexEntry {
 }
 
 impl IndexEntry {
+    #[track_caller]
     pub fn new(
         brres: RawBrres,
         root_offset: usize,
@@ -122,6 +125,7 @@ impl IndexEntry {
         let mut sub_file = None;
 
         if root == false {
+            println!("IndexEntry: Current Index {current_idx}");
             (sub_index, sub_file) = parse_data(brres, data_ptr, group_offset as u32)?;
         }
 
@@ -162,6 +166,30 @@ impl IndexEntry {
         }
     }
 
+    pub fn get_data<T: FromIndexGroup>(
+        &self,
+        brres: RawBrres,
+        sub_file: &mut T,
+    ) -> Result<(), String> {
+        if self.root == false && self.sub_index.is_none() {
+            sub_file.set_data(brres, self.data_ptr + self.group_offset, self.current_idx)?;
+        }
+
+        if let Some(sub_index) = &self.sub_index {
+            sub_index.root.get_data(brres, sub_file)?;
+        }
+
+        if let Some(left) = &self.left {
+            left.get_data(brres, sub_file)?;
+        }
+
+        if let Some(right) = &self.right {
+            right.get_data(brres, sub_file)?;
+        }
+
+        Ok(())
+    }
+
     pub fn print_entry_names(&self) {
         println!("Node Name: {}", self.name,);
 
@@ -179,6 +207,7 @@ impl IndexEntry {
     }
 }
 
+#[track_caller]
 fn parse_data(
     brres: RawBrres,
     data_ptr: u32,

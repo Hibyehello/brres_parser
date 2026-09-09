@@ -25,6 +25,22 @@ impl<'a> RawBrres<'a> {
     }
 }
 
+pub struct Brres {
+    file_header: Option<FileHeader>,
+    root_header: Option<RootHeader>,
+    root_index: Option<IndexHeader>,
+    subfiles: Vec<SubFile>,
+}
+
+impl FromIndexGroup for Brres {
+    fn set_data(&mut self, brres: RawBrres, offset: u32, index: u16) -> Result<(), String> {
+        println!("Brres::set_data: offset {offset}, index {index}");
+        self.subfiles.push(SubFile::new(brres, (offset) as usize)?);
+
+        Ok(())
+    }
+}
+
 struct FileHeader {
     magic: String,
     byte_order: Endian,
@@ -97,6 +113,13 @@ pub fn parse_file(file: &str) -> std::io::Result<()> {
 
     let brres_file = RawBrres::new(&data);
 
+    let mut brres = Brres {
+        file_header: None,
+        root_header: None,
+        root_index: None,
+        subfiles: Vec::new(),
+    };
+
     let file_header_data: &[u8; 0x10] = brres_file
         .slice(0, 0x10)
         .and_then(|d| d.try_into().ok())
@@ -122,17 +145,24 @@ pub fn parse_file(file: &str) -> std::io::Result<()> {
         .map_err(std::io::Error::other)?;
     println!("Root Magic: {}", root_header.magic);
 
-    let mut index_header =
+    let index_header =
         IndexHeader::new(brres_file, root_header.offset + 0x8).map_err(std::io::Error::other)?;
     println!("Root Index Group has {} entries", index_header.num_group);
 
     index_header.root.print_entry_names();
 
-    let mut sub_files = Vec::new();
+    index_header
+        .root
+        .get_data(brres_file, &mut brres)
+        .map_err(|e| std::io::Error::other(e))?;
 
-    index_header.root.create_subfiles(&mut sub_files);
+    brres.file_header = Some(file_header);
+    brres.root_header = Some(root_header);
+    brres.root_index = Some(index_header);
 
-    for file in &mut sub_files {
+    println!("brres.subfiles length: {}", brres.subfiles.len());
+
+    for mut file in brres.subfiles {
         println!("File SectionType is `{}`", file.header.section_type);
         file.generate_subfile(brres_file)
             .map_err(|e| std::io::Error::other(e))?;

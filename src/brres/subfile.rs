@@ -1,4 +1,10 @@
-use crate::brres::{RawBrres, common::SectionType, mdl0::MDL0, tex0::TEX0};
+use crate::brres::{
+    RawBrres,
+    common::SectionType,
+    index_group::IndexHeader,
+    mdl0::{vertices::EntryHeader, *},
+    tex0::TEX0,
+};
 
 pub(crate) struct Header {
     pub header_length: usize,
@@ -7,7 +13,7 @@ pub(crate) struct Header {
     version: u32,
     out_brres_off: u32,
     num_section_offsets: u32,
-    section_offsets: Vec<u32>,
+    section_offsets: Vec<u32>, // These offsets point to an Index Group
     name: String,
     file_off: usize,
 }
@@ -162,6 +168,13 @@ impl SubFile {
         let mdl0 = MDL0::new(brres, self.header.file_off, self.header.header_length)?;
 
         self.file = Some(SubFileData::Mdl0(mdl0));
+
+        /*  TODO: This needs to be a shallow new, since I don't believe sections use a folder-like structure
+        Potentially can have a flat map parsing rather than using recursion */
+        let verts_index_group = IndexHeader::new(
+            brres,
+            self.header.file_off + self.header.section_offsets[2] as usize,
+        )?;
 
         Ok(())
     }
